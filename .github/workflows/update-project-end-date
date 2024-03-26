@@ -1,0 +1,102 @@
+name: Update Project Item End Date on Issue Closure
+
+on:
+  issues:
+    types: [closed]
+
+jobs:
+  update-end-date:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set the end date on project item
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const issue_number = context.issue.number;
+            const closed_at = context.payload.issue.closed_at;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // This is a sample query and must be adjusted according to your project's specifics.
+            // Replace 'YOUR_PROJECT_NUMBER' with your actual project number.
+            const projectIdQuery = `
+              query {
+                repository(owner:"${owner}", name:"${repo}") {
+                  project(number: 2) {
+                    id
+                  }
+                }
+              }
+            `;
+
+            // Fetch the project ID
+            const projectIdResult = await github.graphql(projectIdQuery);
+            const projectId = projectIdResult.repository.project.id;
+
+            // Fetch the item ID and field ID for the "End Date" field
+            // Again, replace placeholders accordingly.
+            const itemIdAndFieldIdQuery = `
+              query {
+                node(id: "${projectId}") {
+                  ... on ProjectV2 {
+                    items(first: 100) {
+                      nodes {
+                        id
+                        fieldValues(first: 10) {
+                          nodes {
+                            ... on ProjectV2ItemFieldTextValue {
+                              text
+                              id
+                              projectField {
+                                name
+                                ... on ProjectV2Field {
+                                  id
+                                }
+                              }
+                            }
+                          }
+                        }
+                        content {
+                          ... on Issue {
+                            number
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              } 
+            `;
+
+            // Fetch the item and field IDs
+            const itemsAndFieldsResult = await github.graphql(itemIdAndFieldIdQuery);
+            
+            // Filter to get the correct item and field related to our closed issue.
+            let endDateFieldId, itemNodeId;
+            
+            for (const item of itemsAndFieldsResult.node.items.nodes) {
+              if (item.content && 'number' in item.content && item.content.number === issue_number) {
+                endDateFieldId = item.fieldValues.nodes.find(field => field.projectField.name === 'End Date').id;
+                itemNodeId = item.id;
+                break;
+              }
+            }
+
+            if (!endDateFieldId || !itemNodeId) return;
+
+            // Mutation query to update the "End Date" custom field of the project item.
+            const mutationQuery = `
+              mutation($fieldValueId: ID!, $value: String!) { 
+                updateProjectV2ItemFieldValue(input:{
+                  projectId:"${projectId}",
+                  itemId:"${itemNodeId}",
+                  fieldId:"${endDateFieldId}",
+                  value:$value}) {
+                    clientMutationId
+                  } 
+                }
+             `;
+
+             // Run mutation with required variables.
+             await github.graphql(mutationQuery, { fieldValueId: endDateFieldId, value: closed_at });
