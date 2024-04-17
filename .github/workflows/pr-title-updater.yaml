@@ -1,0 +1,49 @@
+name: Generate and Update PR Title
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  update-pr-title:
+    name: Generate PR Title from Description
+    if: github.actor != 'dependabot[bot]'  # Avoid running this action for Dependabot PRs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Get PR Description
+        id: get-pr-description
+        run: |
+          PR_DESCRIPTION=$(gh pr view ${{ github.event.pull_request.number }} --json body -q .body)
+          echo "PR_DESCRIPTION<<EOF" >> $GITHUB_ENV
+          echo "$PR_DESCRIPTION" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Generate PR Title with OpenAI
+        id: generate-title
+        uses: fjogeleit/http-request-action@v1.8.0
+        with:
+          url: 'https://api.openai.com/v1/completions'
+          method: 'POST'
+          headers: '{"Authorization": "Bearer ${{ secrets.OPENAI_API_KEY }}", "Content-Type": "application/json"}'
+          data: '{"model": "text-davinci-003", "prompt": "Generate a concise PR title based on the following description: ${{ env.PR_DESCRIPTION }}", "temperature": 0.7, "max_tokens": 60}'
+          expectedStatusCode: 200
+
+      - name: Update PR Title
+        run: |
+          GENERATED_TITLE=$(echo '${{ steps.generate-title.outputs.response }}' | jq -r '.choices[0].text | gsub("\n"; "") | gsub("\r"; "")')
+          gh pr edit ${{ github.event.pull_request.number }} --title "$GENERATED_TITLE"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
