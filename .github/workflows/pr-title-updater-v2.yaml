@@ -1,0 +1,54 @@
+name: Auto Update PR Title
+
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize]
+
+jobs:
+  update-pr-title:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install openai
+
+    - name: Fetch PR Description and Update Title
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: |
+        from github import Github
+        import openai
+
+        # Initialize GitHub API client
+        g = Github(os.getenv('GITHUB_TOKEN'))
+        repo = g.get_repo(os.getenv('GITHUB_REPOSITORY'))
+        pr = repo.get_pull(int(os.getenv('GITHUB_REF').split('/')[-2]))
+
+        # Fetch PR description
+        pr_description = pr.body
+
+        # Generate new PR title using OpenAI's GPT model
+        response = openai.Completion.create(
+          engine="davinci",
+          prompt=f"Summarize this PR based on the description: {pr_description}",
+          max_tokens=60
+        )
+        new_title = response.choices[0].text.strip()
+
+        # Update the PR title
+        pr.edit(title=new_title)
+
+      shell: python
