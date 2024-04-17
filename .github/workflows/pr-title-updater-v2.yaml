@@ -22,7 +22,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install openai
+        pip install openai github
 
     - name: Fetch PR Description and Update Title
       env:
@@ -30,7 +30,7 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: |
         from github import Github
-        import openai
+        from openai import OpenAI
 
         # Initialize GitHub API client
         g = Github(os.getenv('GITHUB_TOKEN'))
@@ -41,11 +41,19 @@ jobs:
         pr_description = pr.body
 
         # Generate new PR title using OpenAI's GPT model
-        response = openai.Completion.create(
-          engine="davinci",
-          prompt=f"Summarize this PR based on the description: {pr_description}",
-          max_tokens=60
+        
+        client = OpenAI()
+
+        response = client.chat.completions.create(
+          model="gpt-3.5-turbo",
+          messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": f"Summarize this PR based on the description: {pr_description}"},
+            {"role": "assistant", "content": "The Los Angeles Dodgers won the World Series in 2020."},
+            {"role": "user", "content": "Where was it played?"}
+          ]
         )
+        
         new_title = response.choices[0].text.strip()
 
         # Update the PR title
